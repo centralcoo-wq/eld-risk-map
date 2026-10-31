@@ -163,9 +163,10 @@ h3{font-weight:800;font-size:14.5px;margin:16px 0 7px}
 .rm{
   --ui-bg:#E8ECEA; --panel:#FFFFFF; --panel-2:#F2F5F3; --ink:#17212A; --ink-2:#46525D; --ink-3:#707C87; --rule:#DAE0DD;
   --sign:#00653A; --sign-ink:#FFFFFF; --mark:#D7261E; --focus:#0B57D0;
-  --water:#BFD6E6; --land:#F3F5F4; --land-nb:#E0E4E2; --urban:#E6DECD; --county:#A9A291; --border:#353E47; --border-nb:#B4B9B6;
-  --lake-edge:#8DB7D4; --river:#7EB1D6;
-  --g-i:#0F7F3E; --g-u:#1C984E; --g-s:#38AB64; --g-o:#8CC9A0; --g-n:#A6C7B0;
+  --water:#9DCAEA; --land:#F3F5F4; --land-nb:#ECE8E1; --urban:#F1C08F; --county:#A9A291; --border:#353E47; --border-nb:#B4B9B6;
+  --lake-edge:#7FB2D8; --river:#86BBE0;
+  --az:#FBE1BF; --az-2:#B4531C; --or:#D6EDCF; --or-2:#2E7A3E; --al:#E5DBF6; --al-2:#6847AE;
+  --g-i:#1F4FB5; --g-u:#1C984E; --g-s:#38AB64; --g-o:#8CC9A0; --g-n:#A6C7B0;
   --y:#FFC400; --y-case:#5A4500; --y-glow:#FFC400; --y-text:#7A5900;
   --lbl:#19222A; --lbl-2:#39444F; --lbl-nb:#78828A; --halo:#FFFFFF; --st-lbl:#8E9AA3;
   color:var(--ink);font:16px/normal Overpass,"Roboto Condensed","Arial Narrow",Arial,sans-serif;
@@ -184,13 +185,19 @@ h3{font-weight:800;font-size:14.5px;margin:16px 0 7px}
 .rm .tabs button{border:1px solid var(--rule);background:var(--panel-2);color:var(--ink);cursor:pointer;padding:8px 12px 6px;border-radius:999px;font-weight:700;font-size:13px;line-height:1.1}
 .rm .tabs button:hover{border-color:var(--ink-3)}
 .rm .tabs button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+/* each state has its own color: light fill on the map and chips, dark accent for text and the pressed tab */
+.rm [data-st="AZ"]{--sf:var(--az);--sa:var(--az-2)}
+.rm [data-st="OR"]{--sf:var(--or);--sa:var(--or-2)}
+.rm [data-st="AL"]{--sf:var(--al);--sa:var(--al-2)}
+.rm .tabs button[data-st]:not([data-st="all"]){background:var(--sf)}
+.rm .tabs button[data-st][aria-pressed="true"]{background:var(--sa,var(--ink));border-color:var(--sa,var(--ink));color:#FFFFFF}
 .rm .scroll{overflow:auto;min-height:0;flex:1;padding:0 14px 18px;overscroll-behavior:contain}
 #r-q{width:100%;box-sizing:border-box;padding:10px 12px 8px;border-radius:10px;border:1px solid var(--rule);background:var(--panel-2);color:var(--ink);font-size:14px}
 #r-q::placeholder{color:var(--ink-3)}
 .rm .grp{margin-top:16px}
-.rm .grp-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.rm .grp-name{font-weight:800;font-size:16px;margin:0}
-.rm .grp-c{font-size:12.5px;color:var(--ink-3);white-space:nowrap}
+.rm .grp-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;background:var(--sf,var(--panel-2));border-radius:9px;padding:8px 10px 6px}
+.rm .grp-name{font-weight:800;font-size:16px;margin:0;color:var(--sa,var(--ink))}
+.rm .grp-c{font-size:12.5px;color:var(--ink-2);white-space:nowrap}
 .rm .grp-r{font-size:12.5px;color:var(--ink-2);margin:3px 0 6px;line-height:1.4}
 .rm .pt{display:flex;gap:11px;width:100%;align-items:center;text-align:left;cursor:pointer;padding:8px 8px 7px;border:0;border-radius:10px;background:transparent;color:var(--ink)}
 .rm .pt:hover{background:var(--panel-2)}
@@ -208,6 +215,7 @@ h3{font-weight:800;font-size:14.5px;margin:16px 0 7px}
 .rm .sw i.ycase{height:9px;background:var(--y-case)}
 .rm .sw i.ycore{height:5px;background:var(--y);left:4px;right:4px}
 .rm .sw i.dash{height:0;border-top:2px dashed var(--county);border-radius:0}
+.rm .sw i.lands{height:12px;background:linear-gradient(90deg,var(--az) 0 33%,var(--or) 0 67%,var(--al) 0);box-shadow:inset 0 0 0 1px var(--rule)}
 .rm .sw b{position:absolute;left:50%;top:50%;border-radius:50%;display:block}
 .rm .sw b.mk{width:14px;height:14px;margin:-7px 0 0 -7px;background:var(--mark);box-shadow:0 0 0 1.5px #FFFFFF}
 .rm .sw b.dot{width:7px;height:7px;margin:-3.5px 0 0 -3.5px;background:var(--lbl);box-shadow:0 0 0 1.5px var(--halo)}
@@ -232,7 +240,7 @@ h3{font-weight:800;font-size:14.5px;margin:16px 0 7px}
 .rm .pp-n{width:30px;height:30px;font-size:14px}
 .rm .pp-name{font-weight:800;font-size:17px;line-height:1.2}
 .rm .pp-rt{font-weight:700;font-size:14px;color:var(--y-text);margin-top:2px}
-.rm .pp-spot{margin-top:10px;padding:8px 10px 7px;border-radius:9px;background:var(--panel-2);font-size:13px;line-height:1.35;color:var(--ink-2)}
+.rm .pp-spot{margin-top:10px;padding:8px 10px 7px;border-radius:9px;background:#FDECEA;box-shadow:inset 3px 0 0 var(--mark);font-size:13px;line-height:1.35;color:var(--ink-2)}
 .rm .pp-spot b{color:var(--ink);font-weight:800}
 .rm .pp-ll{margin-top:11px;font-size:12.5px;color:var(--ink-3)}
 .rm .pp-act{display:flex;gap:8px;margin-top:12px}
@@ -347,6 +355,7 @@ h3{font-weight:800;font-size:14.5px;margin:16px 0 7px}
               <span class="sw"><b class="mk"></b></span><span>Inspection point (number matches the list)</span>
               <span class="sw"><b class="dot"></b></span><span>City or town</span>
               <span class="sw"><i class="dash"></i></span><span>County line</span>
+              <span class="sw"><i class="lands"></i></span><span>Arizona, Oregon, Alabama</span>
             </div>
             <div class="lg-sh"><span class="shd I">10</span><span class="shd U">93</span><span class="shd S L">68</span><span>Route numbers. A yellow ring marks a route from your list.</span></div>
           </section>
@@ -382,7 +391,7 @@ h3{font-weight:800;font-size:14.5px;margin:16px 0 7px}
 <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
 <script>
-// Route maps for AZ, OR and AL: listed routes in yellow, other roads green, red numbered inspection points.
+// Route maps for AZ, OR and AL: each state in its own color, listed routes in yellow, interstates blue, other roads green, red numbered inspection points.
 // Adapted from dot-inspection-map-handoff/web/app2.js to run inside #routes on the risk map page.
 // initRoutes runs once, after deck.gl has loaded. It returns { show } or null when the map can't start.
 function initRoutes(opts) {
@@ -435,7 +444,9 @@ function initRoutes(opts) {
     land: decP(DATA.land), nb: decP(DATA.nb), targets: [], urban: decP(DATA.urban), lakes: decP(DATA.lakes),
     rivers: decL(DATA.rivers), counties: decL(DATA.counties), landLines: decL(DATA.landLines), yellow: decL(DATA.yellow), roads: {}
   };
-  Object.keys(DATA.targets).forEach((k) => G.targets.push(...decP(DATA.targets[k])));
+  const tStates = Object.keys(DATA.targets).map((k) => [k.toLowerCase(), decP(DATA.targets[k])]);
+  tStates.forEach(([, polys]) => G.targets.push(...polys));
+  const stAccent = {}; Object.keys(DATA.states).forEach((k) => { stAccent[DATA.states[k].name] = k.toLowerCase() + '-2'; });
   const flatRings = (polys) => ringsOf(polys).map((r) => r.flat());
   G.nbRings = flatRings(G.nb); G.tRings = flatRings(G.targets); G.lakeRings = flatRings(G.lakes);
   Object.keys(DATA.roads).forEach((k) => { G.roads[k] = decL(DATA.roads[k]); });
@@ -448,7 +459,7 @@ function initRoutes(opts) {
 
   // ---------- colors from CSS tokens (set on #routes) ----------
   const PKEYS = ['water', 'land', 'land-nb', 'urban', 'county', 'border', 'border-nb', 'lake-edge', 'river', 'g-i', 'g-u', 'g-s', 'g-o', 'g-n',
-    'y', 'y-case', 'y-glow', 'y-text', 'lbl', 'lbl-2', 'lbl-nb', 'halo', 'st-lbl', 'mark'];
+    'y', 'y-case', 'y-glow', 'y-text', 'lbl', 'lbl-2', 'lbl-nb', 'halo', 'st-lbl', 'mark', 'az', 'or', 'al', 'az-2', 'or-2', 'al-2'];
   function parseColor(s) {
     s = (s || '').trim();
     if (s[0] === '#') {
@@ -605,7 +616,7 @@ function initRoutes(opts) {
     const L = [];
     if (tiles) L.push(tileLayer());
     else {
-      L.push(polyL('land', G.land, P['land-nb']), polyL('nb', G.nb, P['land-nb']), polyL('targets', G.targets, P.land),
+      L.push(polyL('land', G.land, P['land-nb']), polyL('nb', G.nb, P['land-nb']), ...tStates.map(([k, polys]) => polyL('t-' + k, polys, P[k] || P.land)),
         polyL('urban', G.urban, P.urban), polyL('lakes', G.lakes, P.water));
       L.push(pathL('lake-edge', G.lakeRings, P['lake-edge'], 0.8), pathL('rivers', G.rivers, P.river, Math.max(0.6, w * 0.5), { opacity: 0.9 }));
     }
@@ -696,6 +707,7 @@ function initRoutes(opts) {
     }
     // state names at low zoom
     if (z <= 6.5) {
+      const stC = (name) => (baseKey !== 'satellite' && P[stAccent[name]]) || P['lbl-2'];
       for (const [name, lat, lon, tgt] of DATA.stateLabels) {
         if (!tgt && z < 4.25) continue;
         const [cx, cy] = vp.project([lon, lat]); if (!inView(cx, cy, 0)) continue;
@@ -707,11 +719,11 @@ function initRoutes(opts) {
           const x0 = cx - w / 2, y0 = cy - h / 2 + dy;
           if (free(x0, y0, x0 + w, y0 + h, 2)) {
             occ.push([x0, y0, x0 + w, y0 + h]);
-            out.t800.push(item(lon, lat, cx, cy, x0, y0, w, txt, size, tgt ? P['lbl-2'] : P['st-lbl'], 'middle'));
+            out.t800.push(item(lon, lat, cx, cy, x0, y0, w, txt, size, tgt ? stC(name) : P['st-lbl'], 'middle'));
             placed = true; break;
           }
         }
-        if (!placed && tgt) out.t800.push(item(lon, lat, cx, cy, cx - w / 2, cy - h / 2, w, txt, size, P['lbl-2'], 'middle'));
+        if (!placed && tgt) out.t800.push(item(lon, lat, cx, cy, cx - w / 2, cy - h / 2, w, txt, size, stC(name), 'middle'));
       }
     }
     // cities and towns
@@ -847,7 +859,7 @@ function initRoutes(opts) {
       const S = DATA.states[st];
       const pts = DATA.points.filter((p) => p.st === st && (!q || (p.name + ' ' + p.route + ' ' + S.name + ' ' + st).toLowerCase().includes(q)));
       if (!pts.length) continue;
-      const g = document.createElement('section'); g.className = 'grp';
+      const g = document.createElement('section'); g.className = 'grp'; g.dataset.st = st;
       g.innerHTML = '<div class="grp-h"><h3 class="grp-name">' + S.name + '</h3><span class="grp-c">' + pts.length + (pts.length === 1 ? ' point' : ' points') + '</span></div>' +
         '<div class="grp-r">Yellow routes: ' + esc(S.listed) + '</div>';
       for (const p of pts) {
