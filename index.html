@@ -535,7 +535,7 @@ function initRoutes(opts) {
       parent: mapEl,
       views: new MapView({ repeat: false }),
       viewState: VS,
-      controller: { scrollZoom: { speed: 0.012, smooth: true }, dragRotate: false, touchRotate: false, keyboard: true, inertia: 300, doubleClickZoom: true },
+      controller: { scrollZoom: false, dragRotate: false, touchRotate: false, keyboard: true, inertia: 300, doubleClickZoom: true },
       onViewStateChange: ({ viewState }) => { applyVS(viewState); return VS; },
       layers: [],
       useDevicePixels: Math.min(2, window.devicePixelRatio || 1),
@@ -557,20 +557,59 @@ function initRoutes(opts) {
     nv.minZoom = ZMIN; nv.maxZoom = maxZoom;
     VS = nv;
     deckgl.setProps({ viewState: VS });
-    onView();
+    // A transition reports its first frame right away (replacing VS) and then every frame, so only a view that is
+    // actually on screen redraws the rest. Drawing the end state first made lines, the popup and the scale bar jump.
+    if (VS === nv) onView();
   }
+  const TKEYS = ['transitionDuration', 'transitionInterpolator', 'transitionEasing', 'transitionInterruption', 'onTransitionStart', 'onTransitionEnd', 'onTransitionInterrupt'];
+  const still = (v) => { const o = Object.assign({}, v); TKEYS.forEach((k) => delete o[k]); return o; };
   function setView(v, mode, done) {
-    const nv = Object.assign({}, VS, v, { pitch: 0, bearing: 0, minZoom: ZMIN, maxZoom: maxZoom });
-    delete nv.transitionDuration; delete nv.transitionInterpolator; delete nv.onTransitionEnd;
+    zAnim = null;
+    const nv = still(Object.assign({}, VS, v, { pitch: 0, bearing: 0, minZoom: ZMIN, maxZoom: maxZoom }));
     const animate = mode && !reduceMotion;
     if (animate) {
       nv.transitionDuration = mode === 'fly' ? 1100 : 280;
       nv.transitionInterpolator = mode === 'fly' ? new FlyToInterpolator() : new LinearInterpolator(['longitude', 'latitude', 'zoom']);
+      if (mode !== 'fly') nv.transitionEasing = (t) => 1 - Math.pow(1 - t, 3);
       if (done) nv.onTransitionEnd = done;
     }
-    VS = nv; deckgl.setProps({ viewState: VS }); onView();
+    VS = nv; deckgl.setProps({ viewState: VS }); if (VS === nv) onView();
     if (!animate && done) setTimeout(done, 0);
   }
+
+  // ---------- smooth zoom for the wheel and the +/- buttons ----------
+  // Glides toward a target zoom and keeps the point under the cursor in place. New wheel steps and quick clicks
+  // add to the target instead of restarting from wherever the last animation had got to.
+  let zAnim = null, zRaf = 0;
+  function zoomTo(z, px) {
+    z = Math.max(ZMIN, Math.min(maxZoom, z));
+    px = px || [mapEl.clientWidth / 2, mapEl.clientHeight / 2];
+    if (!zAnim || zAnim.px[0] !== px[0] || zAnim.px[1] !== px[1]) zAnim = { px, ll: viewport().unproject(px), t: zAnim ? zAnim.t : performance.now() };
+    zAnim.z = z;
+    if (!zRaf) zRaf = requestAnimationFrame(zoomFrame);
+  }
+  const zoomGoal = () => (zAnim ? zAnim.z : VS.zoom);
+  function zoomFrame() {
+    zRaf = 0;
+    const a = zAnim; if (!a) return;
+    const now = performance.now(), dt = Math.max(0, Math.min(100, now - a.t)); a.t = now;
+    let z = reduceMotion ? a.z : VS.zoom + (a.z - VS.zoom) * (1 - Math.exp(-dt / 75));
+    if (Math.abs(a.z - z) < 0.002) z = a.z;
+    const W = mapEl.clientWidth, H = mapEl.clientHeight;
+    const vp = new WebMercatorViewport({ longitude: VS.longitude, latitude: VS.latitude, zoom: z, width: W, height: H });
+    const p = vp.project(a.ll), c = vp.unproject([W / 2 + p[0] - a.px[0], H / 2 + p[1] - a.px[1]]);
+    applyVS(still(Object.assign({}, VS, { longitude: c[0], latitude: c[1], zoom: z })));
+    if (z === a.z) zAnim = null; else zRaf = requestAnimationFrame(zoomFrame);
+  }
+  mapEl.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const d = -e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 400 : 1);
+    if (!d) return;
+    const s = 2 / (1 + Math.exp(-Math.abs(d * 0.012)));
+    const r = mapEl.getBoundingClientRect();
+    zoomTo(zoomGoal() + (d > 0 ? 1 : -1) * Math.log2(s), [e.clientX - r.left, e.clientY - r.top]);
+  }, { passive: false });
+  mapEl.addEventListener('pointerdown', () => { zAnim = null; }, true);
   let lastZ = -99;
   function onView() {
     if (Math.abs(VS.zoom - lastZ) > 0.01) { lastZ = VS.zoom; render(); }
@@ -620,15 +659,16 @@ function initRoutes(opts) {
         polyL('urban', G.urban, P.urban), polyL('lakes', G.lakes, P.water));
       L.push(pathL('lake-edge', G.lakeRings, P['lake-edge'], 0.8), pathL('rivers', G.rivers, P.river, Math.max(0.6, w * 0.5), { opacity: 0.9 }));
     }
+    // faded-out layers stay in the list with visible:false, so zooming past their threshold doesn't rebuild them
     const fc = fade(5.2, 5.8);
-    if (showCounties && fc > 0) L.push(pathL('counties', G.counties, P.county, z < 7 ? 0.7 : 1.1, { opacity: 0.9 * fc, extensions: [DASH], getDashArray: [4, 3], dashJustified: true }));
+    L.push(pathL('counties', G.counties, P.county, z < 7 ? 0.7 : 1.1, { visible: showCounties && fc > 0, opacity: 0.9 * fc, extensions: [DASH], getDashArray: [4, 3], dashJustified: true }));
     L.push(pathL('landLines', G.landLines, P['border-nb'], 1, { opacity: tiles ? 0.6 : 1 }), pathL('nbLines', G.nbRings, P['border-nb'], 1, { opacity: tiles ? 0.6 : 1 }));
     L.push(pathL('tLines', G.tRings, P.border, z < 6 ? 1.3 : 1.9, { opacity: 0.95 }));
     const fnO = fade(6.8, 7.4), fO = fade(6.0, 6.6);
-    if (showLocal && fnO > 0) L.push(pathL('nO', G.roads.nO, P['g-n'], w * 0.4, { opacity: 0.85 * fnO }));
+    L.push(pathL('nO', G.roads.nO, P['g-n'], w * 0.4, { visible: showLocal && fnO > 0, opacity: 0.85 * fnO }));
     L.push(pathL('nS', G.roads.nS, P['g-n'], w * 0.65, { opacity: 0.85 }), pathL('nU', G.roads.nU, P['g-n'], w * 0.85, { opacity: 0.85 }),
       pathL('nI', G.roads.nI, P['g-n'], w * 1.1, { opacity: 0.85 }));
-    if (showLocal && fO > 0) L.push(pathL('O', G.roads.O, P['g-o'], w * 0.55, { opacity: 0.95 * fO }));
+    L.push(pathL('O', G.roads.O, P['g-o'], w * 0.55, { visible: showLocal && fO > 0, opacity: 0.95 * fO }));
     L.push(pathL('S', G.roads.S, P['g-s'], w * 0.9), pathL('U', G.roads.U, P['g-u'], w * 1.25), pathL('I', G.roads.I, P['g-i'], w * 1.7));
     const yc = w * 2.0 + 0.9;
     L.push(pathL('yGlow', G.yellow, P['y-glow'], yc * 3.4, { opacity: tiles ? 0.3 : 0.2 }), pathL('yCase', G.yellow, P['y-case'], yc + 2.4), pathL('yCore', G.yellow, P.y, yc));
@@ -914,8 +954,8 @@ function initRoutes(opts) {
     new ResizeObserver(() => { placePopup(); scheduleLabels(60); }).observe(mapEl);
     new ResizeObserver(updateSheetH).observe(panel);
   }
-  $('r-zin').addEventListener('click', () => setView({ zoom: Math.min(maxZoom, VS.zoom + 1) }, 'ease'));
-  $('r-zout').addEventListener('click', () => setView({ zoom: Math.max(ZMIN, VS.zoom - 1) }, 'ease'));
+  $('r-zin').addEventListener('click', () => zoomTo(zoomGoal() + 1));
+  $('r-zout').addEventListener('click', () => zoomTo(zoomGoal() - 1));
 
   // ---------- layer toggles ----------
   $('r-county').addEventListener('change', (e) => { showCounties = e.target.checked; render(); });
