@@ -648,6 +648,8 @@ function initRoutes(opts) {
   let tripOn = false, picking = null, wdrag = null, trip = null, tripBusy = false, tripErr = null, pickDown = null, pickedAt = 0;
   // driven routes: panel view on, the trip shown (index into DRV, -1 = none)
   let drvOn = false, drvSel = -1;
+  // which panel view is open: 'pts' (inspection points), 'trip' (route check) or 'drv' (driven routes)
+  let panelV = 'pts';
   let maxZoom = 15.5;
   const ZMIN = 3;
   let LBL = { t600: [], t700: [], t800: [], tags: [], dots: [], caps: [], shields: [] };
@@ -1108,8 +1110,15 @@ function initRoutes(opts) {
     popEl.style.transform = 'translate(' + Math.round(x - w / 2) + 'px,' + Math.round(y - h - 26) + 'px)';
     popEl.style.visibility = (x < -40 || y < -40 || x > W + 40 || y > H + 40) ? 'hidden' : 'visible';
   }
+  // Tell the page what is on screen, as the short name its links use: 'routes', 'az' / 'or' / 'al', a point id while its
+  // popup is open in the points view, 'trip', or 'drv5'. The page keeps it in the address, so a refresh opens the same view.
+  function reportView() {
+    if (!opts || !opts.onView) return;
+    opts.onView(panelV === 'trip' ? 'trip' : panelV === 'drv' ? (DRV[drvSel] ? 'drv' + (drvSel + 1) : 'drv')
+      : popPt ? popPt.id : activeSt === 'all' ? 'routes' : activeSt.toLowerCase());
+  }
   function openPopup(p, pan) {
-    popPt = p; popBody.innerHTML = popupHtml(p); popEl.hidden = false; select(p.id); placePopup();
+    popPt = p; popBody.innerHTML = popupHtml(p); popEl.hidden = false; select(p.id); placePopup(); reportView();
     if (pan) {
       const [x, y] = viewport().project([p.lon, p.lat]);
       const w = popEl.offsetWidth, h = popEl.offsetHeight, W = mapEl.clientWidth, H = mapEl.clientHeight;
@@ -1124,7 +1133,7 @@ function initRoutes(opts) {
       }
     }
   }
-  function closePopup() { if (!popPt) return; popPt = null; popEl.hidden = true; select(null); }
+  function closePopup() { if (!popPt) return; popPt = null; popEl.hidden = true; select(null); reportView(); }
   popEl.querySelector('.pop-x').addEventListener('click', closePopup);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (picking) stopPick(); closePopup(); } });
   function select(id) {
@@ -1179,7 +1188,7 @@ function initRoutes(opts) {
   function showState(st, animate) {
     activeSt = st; setTabs(st);
     setView(fitView(st === 'all' ? allBox : DATA.states[st].bbox), animate ? 'fly' : null);
-    renderList();
+    renderList(); reportView();
   }
   root.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { closePopup(); showState(b.dataset.st, true); }));
   function goTo(p) {
@@ -2100,7 +2109,7 @@ function initRoutes(opts) {
   }
   function selectDrv(k, animate) {
     if (!DRV[k]) return;
-    closePopup(); drvSel = k; renderDrv(); render(); fitDrv(animate);
+    closePopup(); drvSel = k; renderDrv(); render(); fitDrv(animate); reportView();
   }
   drvListEl.addEventListener('click', (e) => { const b = e.target.closest('.dt[data-k]'); if (b) selectDrv(+b.dataset.k); });
   drvResEl.addEventListener('click', (e) => {
@@ -2111,7 +2120,6 @@ function initRoutes(opts) {
   });
 
   // ----- panel view: inspection points, route check or driven routes -----
-  let panelV = 'pts';
   function setPanel(v, k, animate) { // k: the driven trip to show (driven routes only)
     const on = v === 'trip', dv = v === 'drv';
     panelV = v; tripOn = on; drvOn = dv;
@@ -2123,7 +2131,7 @@ function initRoutes(opts) {
     else if (trip) fitTrip();
     else if (!tripBusy && wps[0].ll && wps[wps.length - 1].ll) reroute(true);
     if (dv) { if (k != null && DRV[k]) selectDrv(k, animate); else if (DRV[drvSel]) { renderDrv(); fitDrv(animate); } else selectDrv(0, animate); }
-    scheduleLabels(0); requestAnimationFrame(updateSheetH);
+    scheduleLabels(0); requestAnimationFrame(updateSheetH); reportView();
   }
   modeBtns.forEach((b) => b.addEventListener('click', () => { if (b.dataset.v !== panelV) { closePopup(); setPanel(b.dataset.v); } }));
   renderRows(); renderTripRes();
@@ -2141,6 +2149,7 @@ function initRoutes(opts) {
   showState('all', false);
   layoutLabels(); render(); updateScale();
   return {
+    report: reportView, // say the current view again (the page calls it when Route maps is opened)
     // target: 'all', 'AZ' / 'OR' / 'AL', a list of point ids, 'trip' for the route check, 'drv' or 'drv1' … for the driven routes
     show(target, animate) {
       if (target === 'trip') { setPanel('trip'); return; }
@@ -2494,7 +2503,10 @@ function renderLegend(){
   document.getElementById("hotchk").onchange=e=>{showHot=e.target.checked;drawHot()};
 }
 
-function select(a){sel=a;if(FLOWS[a])src=a;drawStates();drawFlows();renderDetail();renderLegend()}
+function select(a){sel=a;if(FLOWS[a])src=a;drawStates();drawFlows();renderDetail();renderLegend();if(mode!=="routes")setHash((mode==="camera"?"cameras-":"risk-")+a.toLowerCase())}
+// The address keeps what is on screen (#risk-or, #cameras-az, #routes, #or, #or9, #trip, #drv5), so a refresh or a copied
+// link opens the same view. replaceState changes it without adding a Back step and without firing hashchange.
+function setHash(h){if(location.hash.slice(1)!==h)history.replaceState(null,"",location.pathname+location.search+(h?"#"+h:""))}
 function setMode(m){mode=m;
   document.getElementById("m-risk").setAttribute("aria-pressed",m==="risk");
   document.getElementById("m-cam").setAttribute("aria-pressed",m==="camera");
@@ -2513,11 +2525,11 @@ let routes=null,routesLoading=false,routeNext=null;
 // target: "all", a state, or a list of point ids; none keeps the route map where it was
 function showRoutes(target){
   const was=mode==="routes";setMode("routes");
-  if(routes){if(target)routes.show(target,was);return}
+  if(routes){if(target)routes.show(target,was);else routes.report();return}
   if(target)routeNext=target;
   if(routesLoading)return;routesLoading=true;
   const s=document.createElement("script");s.src=DECK;
-  s.onload=s.onerror=()=>{routes=initRoutes({extra:spotNote,abbr:ABBR,stateOf:stateOfLL,stateInfo,spot:spotCount,site:"https://centralcoo-wq.github.io/eld-risk-map/"});if(routes&&routeNext)routes.show(routeNext,false)};
+  s.onload=s.onerror=()=>{routes=initRoutes({extra:spotNote,abbr:ABBR,stateOf:stateOfLL,stateInfo,spot:spotCount,site:"https://centralcoo-wq.github.io/eld-risk-map/",onView:h=>{if(mode==="routes")setHash(h)}});if(routes&&routeNext)routes.show(routeNext,false)};
   document.head.append(s);
 }
 // popup line on the route map: the risk-map hot spot this point belongs to
@@ -2529,10 +2541,11 @@ function spotNote(p){
 const spotCount=p=>{const c=CORR.find(c=>c.pts.includes(p.id));return c?c.n:0};
 const stateInfo=a=>({name:NAMES[a]||a,zone:zone(a),label:ZL[zone(a)],cap:ZCAP[zone(a)],viol:VIOL[a]||0});
 // Links from the old DOT map still work: #az, #or, #al open a state, #az1 … #al8 one point, #routes all three; #trip opens the route check;
-// #drv opens the driven routes, #drv1 … one trip
+// #drv opens the driven routes, #drv1 … one trip; #risk-or / #cameras-az open the risk or camera map with a state picked
 function fromHash(){
-  const h=location.hash.slice(1).toLowerCase();
-  if(h==="routes")showRoutes("all");
+  const h=location.hash.slice(1).toLowerCase(), rm=/^(risk|cameras)(?:-([a-z]{2}))?$/.exec(h);
+  if(rm){if(rm[2]&&NAMES[rm[2].toUpperCase()])sel=rm[2].toUpperCase();setMode(rm[1]==="cameras"?"camera":"risk")}
+  else if(h==="routes")showRoutes("all");
   else if(h==="trip")showRoutes("trip");
   else if(/^drv\d*$/.test(h))showRoutes(h);
   else if(/^(az|or|al)$/.test(h))showRoutes(h.toUpperCase());
