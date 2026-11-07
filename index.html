@@ -341,6 +341,7 @@ h3{font-weight:800;font-size:14.5px;margin:16px 0 7px}
 .rm .tr-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .rm .tag{font-size:12px;font-weight:800;line-height:1;padding:5px 8px 4px;border-radius:999px;background:var(--panel);color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--rule)}
 .rm .tag.tk{background:var(--route);color:#FFFFFF;box-shadow:none}
+.rm .tr-truck{font-size:12px;color:var(--ink-2);line-height:1.4;margin:7px 0 0}
 .rm .tr-note{font-size:13px;color:var(--ink-2);background:#FFF5D6;border-radius:9px;padding:8px 10px 7px;margin:10px 0 0;line-height:1.45}
 .rm .linkb{border:0;background:none;padding:0;color:var(--focus);font:inherit;font-weight:800;cursor:pointer;text-decoration:underline}
 .rm .tr-alts{display:grid;gap:6px;margin-top:10px}
@@ -498,7 +499,7 @@ h3{font-weight:800;font-size:14.5px;margin:16px 0 7px}
               <button type="button" id="r-rev">Reverse</button>
               <button type="button" id="r-tclear">Clear</button>
             </div>
-            <p class="trip-hint" id="r-triphint">Type a city, address or lat, lon and choose a match, or press the target button and click the map. The route lists every inspection point it passes.</p>
+            <p class="trip-hint" id="r-triphint">Type a city, address or lat, lon and choose a match, or press the target button and click the map. Routes are planned for a loaded 53 ft dry van (80,000 lb, 13 ft 6 in tall), and list every inspection point they pass.</p>
             <div id="r-tripres" aria-live="polite"></div>
           </div>
           <div id="r-drv" hidden>
@@ -1277,6 +1278,11 @@ function initRoutes(opts) {
   const OSRM = 'https://router.project-osrm.org/route/v1/driving/';
   const PHOTON = 'https://photon.komoot.io/';
   const TRUCK_KM = 1450, MAXW = 11, NEAR_MI = 1.5, TKEY = 'eldmap.trip', RAD = Math.PI / 180;
+  // Every truck route is for a loaded dry van: 53 ft trailer (about 72 ft overall), 13 ft 6 in tall, 8 ft 6 in wide,
+  // 80,000 lb gross on 5 axles. Valhalla takes meters and metric tons. Without these it plans for a 48,000 lb, 71 ft truck,
+  // so weight-limited bridges and length-limited roads would wrongly count as open.
+  const TRUCK = { height: 4.11, width: 2.6, length: 22, weight: 36.29, axle_load: 9.07, axle_count: 5 };
+  const TRUCK_TXT = 'Loaded dry van: 53 ft trailer, 80,000 lb, 13 ft 6 in tall, 8 ft 6 in wide';
   const DIRW = { N: 'northbound', S: 'southbound', E: 'eastbound', W: 'westbound' };
   const ABBR = (opts && opts.abbr) || {};
   const wpsEl = $('r-wps'), resEl = $('r-tripres'), hintEl = $('r-triphint'), addBtn = $('r-addstop'), pickEl = $('r-pick');
@@ -1340,7 +1346,7 @@ function initRoutes(opts) {
     return [r, d];
   }
   async function valhalla(locs, alts, signal, ex) { // ex: spots the route must keep off (the server takes up to 50)
-    const q = { locations: locs.map((l) => ({ lon: +l[0].toFixed(6), lat: +l[1].toFixed(6), type: 'break' })), costing: 'truck', units: 'miles', directions_type: 'none' };
+    const q = { locations: locs.map((l) => ({ lon: +l[0].toFixed(6), lat: +l[1].toFixed(6), type: 'break' })), costing: 'truck', costing_options: { truck: TRUCK }, units: 'miles', directions_type: 'none' };
     if (alts) q.alternates = 2;
     if (ex && ex.length) q.exclude_locations = ex.map((l) => ({ lon: +l[0].toFixed(6), lat: +l[1].toFixed(6) }));
     const [r, d] = await getJSON(VALHALLA + '?json=' + encodeURIComponent(JSON.stringify(q)), signal);
@@ -1404,7 +1410,7 @@ function initRoutes(opts) {
     } catch (e) {
       if (e.name === 'AbortError') throw e;
       note = e.code === 171 ? 'A stop is too far from a road trucks can use. Move it onto the road to get a truck route.'
-        : (e.code === 442 || e.code === 443) ? 'No truck route was found between these stops.'
+        : (e.code === 442 || e.code === 443) ? 'No dry van route was found. Usually a stop is on a street closed to trucks: move it onto a main road. The line shown is a car route, so check it before sending a truck.'
         : 'Truck routing didn’t answer. Try again in a minute to get a truck route.';
     }
     return { alts: await osrm(locs, locs.length === 2, signal), truck: false, note };
@@ -1962,9 +1968,10 @@ function initRoutes(opts) {
     let h = tripBusy ? '<p class="tr-msg">Updating the route…</p>' : '';
     h += '<div class="tr' + (tripBusy ? ' busy' : '') + '">';
     h += '<div class="tr-sum"><div class="tr-big">' + fmtMi(a.mi) + DOT + fmtT(a.s) + '</div><div class="tr-tags">' +
-      '<span class="tag' + (trip.truck ? ' tk' : '') + '">' + (trip.truck ? 'Truck route' : 'Car route') + '</span>' +
+      '<span class="tag' + (trip.truck ? ' tk' : '') + '"' + (trip.truck ? ' title="' + TRUCK_TXT + '"' : '') + '>' + (trip.truck ? 'Dry van route' : 'Car route') + '</span>' +
       '<span class="tag">' + (nStops ? nStops + (nStops === 1 ? ' stop' : ' stops') : 'No stops') + '</span>' +
-      (a.toll ? '<span class="tag">Tolls</span>' : '') + (a.ferry ? '<span class="tag">Ferry</span>' : '') + '</div></div>';
+      (a.toll ? '<span class="tag">Tolls</span>' : '') + (a.ferry ? '<span class="tag">Ferry</span>' : '') + '</div>' +
+      (trip.truck ? '<p class="tr-truck">' + TRUCK_TXT + '</p>' : '') + '</div>';
     if (trip.note) h += '<p class="tr-note">' + esc(trip.note) + '</p>';
     if (trip.alts.length > 1) {
       const fast = Math.min(...trip.alts.map((x) => x.s));
@@ -2003,7 +2010,7 @@ function initRoutes(opts) {
   }
   function summaryText() {
     const a = trip.alts[trip.sel], an = trip.an, on = an.hits.filter((x) => !x.other);
-    const out = [trip.W.map((w) => w.name).join(' → '), fmtMi(a.mi) + ' · ' + fmtT(a.s) + ' · ' + (trip.truck ? 'truck route' : 'car route')];
+    const out = [trip.W.map((w) => w.name).join(' → '), fmtMi(a.mi) + ' · ' + fmtT(a.s) + ' · ' + (trip.truck ? 'dry van route (53 ft trailer, 80,000 lb, 13 ft 6 in)' : 'car route, not checked for trucks')];
     if (a.ar) out.push('Goes around ' + (trip.alts[0].n - a.n) + ' of the ' + ptCount(trip.alts[0].n) + ' on the fastest route, ' + (a.s - trip.alts[0].s >= 60 ? '+' + fmtT(a.s - trip.alts[0].s) : 'same time') + '.');
     out.push(on.length ? 'Inspection points on the way:' : 'No inspection points from the map on this route.');
     on.forEach((x) => out.push('• mile ' + Math.round(x.mi) + ': ' + x.p.name + ', ' + x.p.st + ' (' + x.p.route + ')' +
