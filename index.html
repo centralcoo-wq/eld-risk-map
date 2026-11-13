@@ -642,6 +642,14 @@ function initRoutes(opts) {
   let drvOn = false, drvSel = -1;
   // which panel view is open: 'pts' (inspection points), 'trip' (route check) or 'drv' (driven routes)
   let panelV = 'pts';
+  // the address follows the map while it moves: at most every 250 ms (browsers limit how often a page may rewrite it),
+  // plus once more when it stops, so a refresh right after a pan or zoom still lands in the same place
+  let repT = 0, repAt = 0;
+  function reportSoon() {
+    clearTimeout(repT);
+    const go = () => { repT = 0; repAt = performance.now(); reportView(); }, wait = 250 - (performance.now() - repAt);
+    if (wait <= 0) go(); else repT = setTimeout(go, wait);
+  }
   let maxZoom = 15.5;
   const ZMIN = 3;
   let LBL = { t600: [], t700: [], t800: [], tags: [], dots: [], caps: [], shields: [] };
@@ -809,6 +817,7 @@ function initRoutes(opts) {
   function onView() {
     if (Math.abs(VS.zoom - lastZ) > 0.01) { lastZ = VS.zoom; render(); }
     placePopup(); updateScale(); scheduleLabels();
+    reportSoon();
   }
 
   // ---------- layers ----------
@@ -1104,10 +1113,23 @@ function initRoutes(opts) {
   }
   // Tell the page what is on screen, as the short name its links use: 'routes', 'az' / 'or' / 'al', a point id while its
   // popup is open in the points view, 'trip', or 'drv5'. The page keeps it in the address, so a refresh opens the same view.
+  // After '@' come the map's centre, zoom and style, like Google Maps: 'routes@33.4484,-112.0740,12.5z,street'.
   function reportView() {
     if (!opts || !opts.onView) return;
-    opts.onView(panelV === 'trip' ? 'trip' : panelV === 'drv' ? (DRV[drvSel] ? 'drv' + (drvSel + 1) : 'drv')
-      : popPt ? popPt.id : activeSt === 'all' ? 'routes' : activeSt.toLowerCase());
+    opts.onView((panelV === 'trip' ? 'trip' : panelV === 'drv' ? (DRV[drvSel] ? 'drv' + (drvSel + 1) : 'drv')
+      : popPt ? popPt.id : activeSt === 'all' ? 'routes' : activeSt.toLowerCase()) + camStr());
+  }
+  function camStr() {
+    return '@' + VS.latitude.toFixed(4) + ',' + VS.longitude.toFixed(4) + ',' + (+VS.zoom.toFixed(2)) + 'z' + (baseKey === 'none' ? '' : ',' + baseKey);
+  }
+  // put the map back where a link says ('33.4484,-112.0740,12.5z,street'); a bad or missing value leaves it alone
+  let camKeep = -1; // a route check still being fetched when the place was restored: don't zoom to it when it arrives
+  function setCamera(s) {
+    const m = /^(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)z(?:,(street|satellite))?$/.exec(s || '');
+    if (!m) return;
+    setBase(m[4] || 'none');
+    setView({ latitude: +m[1], longitude: +m[2], zoom: Math.max(ZMIN, Math.min(maxZoom, +m[3])) }, null);
+    if (tripOn && tripBusy) camKeep = tripSeq;
   }
   function openPopup(p, pan) {
     popPt = p; popBody.innerHTML = popupHtml(p); popEl.hidden = false; select(p.id); placePopup(); reportView();
@@ -1243,6 +1265,7 @@ function initRoutes(opts) {
   let baseOK = { street: false, satellite: false };
   Promise.all([probe(BASE.street.test), probe(BASE.satellite.test)]).then(([s, a]) => {
     baseOK = { street: s, satellite: a };
+    if (baseKey !== 'none' && !baseOK[baseKey]) setBase('none'); // a link asked for a style this browser can't load
     if (tripOn && trip) renderTripRes();
     if (drvOn) renderDrv();
     bmBox.querySelector('[data-b="street"]').hidden = !s;
@@ -1523,6 +1546,7 @@ function initRoutes(opts) {
     try {
       const t = await findRoute(W.map((w) => w.ll), ctl.signal);
       if (my !== tripSeq) return;
+      if (camKeep === my) fit = false; // the link already put the map where the user had it
       t.alts.forEach(prepAlt);
       t.alts.sort((x, y) => x.s - y.s); // fastest first, and picked
       t.W = W; t.sel = 0; t.fit = !!fit; trip = t;
@@ -2241,6 +2265,7 @@ function initRoutes(opts) {
   layoutLabels(); render(); updateScale();
   return {
     report: reportView, // say the current view again (the page calls it when Route maps is opened)
+    camera: setCamera, // the part of a link after '@': centre, zoom and map style
     // target: 'all', 'AZ' / 'OR' / 'AL', a list of point ids, 'trip' for the route check, 'drv' or 'drv1' … for the driven routes
     show(target, animate) {
       if (target === 'trip') { setPanel('trip'); return; }
@@ -2505,7 +2530,7 @@ function renderLegend(){
 }
 
 function select(a){sel=a;if(FLOWS[a])src=a;drawStates();drawFlows();renderDetail();renderLegend();if(mode!=="routes")setHash((mode==="camera"?"cameras-":"risk-")+a.toLowerCase())}
-// The address keeps what is on screen (#risk-or, #cameras-az, #routes, #or, #or9, #trip, #drv5), so a refresh or a copied
+// The address keeps what is on screen (#risk-or, #cameras-az, #routes@…, #or@…, #or9@…, #trip@…, #drv5@…), so a refresh or a copied
 // link opens the same view. replaceState changes it without adding a Back step and without firing hashchange.
 function setHash(h){if(location.hash.slice(1)!==h)history.replaceState(null,"",location.pathname+location.search+(h?"#"+h:""))}
 function setMode(m){mode=m;
@@ -2522,15 +2547,16 @@ document.getElementById("m-routes").onclick=()=>showRoutes();
 
 // Route maps (routes.js). deck.gl loads the first time the view opens.
 const DECK="https://cdn.jsdelivr.net/npm/deck.gl@9.3.11/dist.min.js";
-let routes=null,routesLoading=false,routeNext=null;
-// target: "all", a state, or a list of point ids; none keeps the route map where it was
-function showRoutes(target){
+let routes=null,routesLoading=false,routeNext=null,camNext="";
+// target: "all", a state, or a list of point ids; none keeps the route map where it was.
+// cam: the link's part after "@" (centre, zoom, map style), put back after the target so a refresh lands where the user was
+function showRoutes(target,cam){
   const was=mode==="routes";setMode("routes");
-  if(routes){if(target)routes.show(target,was);else routes.report();return}
-  if(target)routeNext=target;
+  if(routes){if(target)routes.show(target,was&&!cam);else routes.report();if(cam)routes.camera(cam);return}
+  if(target)routeNext=target;if(cam)camNext=cam;
   if(routesLoading)return;routesLoading=true;
   const s=document.createElement("script");s.src=DECK;
-  s.onload=s.onerror=()=>{routes=initRoutes({est:EST,extra:spotNote,abbr:ABBR,stateOf:stateOfLL,stateInfo,spot:spotCount,site:"https://centralcoo-wq.github.io/eld-risk-map/",onView:h=>{if(mode==="routes")setHash(h)}});if(routes&&routeNext)routes.show(routeNext,false)};
+  s.onload=s.onerror=()=>{routes=initRoutes({est:EST,extra:spotNote,abbr:ABBR,stateOf:stateOfLL,stateInfo,spot:spotCount,site:"https://centralcoo-wq.github.io/eld-risk-map/",onView:h=>{if(mode==="routes")setHash(h)}});if(routes&&routeNext)routes.show(routeNext,false);if(routes&&camNext)routes.camera(camNext)};
   document.head.append(s);
 }
 // popup line on the route map: the risk-map hot spot this point belongs to
@@ -2542,15 +2568,16 @@ function spotNote(p){
 const spotCount=p=>{const c=CORR.find(c=>c.pts.includes(p.id));return c?c.n:0};
 const stateInfo=a=>({name:NAMES[a]||a,zone:zone(a),label:ZL[zone(a)],cap:ZCAP[zone(a)],viol:VIOL[a]||0});
 // Links from the old DOT map still work: #az, #or, #al open a state, #az1 … #al8 one point, #routes all three; #trip opens the route check;
-// #drv opens the driven routes, #drv1 … one trip; #risk-or / #cameras-az open the risk or camera map with a state picked
+// #drv opens the driven routes, #drv1 … one trip; #risk-or / #cameras-az open the risk or camera map with a state picked.
+// Any route-map link can end in @lat,lon,zoom z(,street|satellite), like #routes@33.4484,-112.0740,12.5z,street
 function fromHash(){
-  const h=location.hash.slice(1).toLowerCase(), rm=/^(risk|cameras)(?:-([a-z]{2}))?$/.exec(h);
+  const [h,cam=""]=location.hash.slice(1).toLowerCase().split("@"), rm=/^(risk|cameras)(?:-([a-z]{2}))?$/.exec(h);
   if(rm){if(rm[2]&&NAMES[rm[2].toUpperCase()])sel=rm[2].toUpperCase();setMode(rm[1]==="cameras"?"camera":"risk")}
-  else if(h==="routes")showRoutes("all");
-  else if(h==="trip")showRoutes("trip");
-  else if(/^drv\d*$/.test(h))showRoutes(h);
-  else if(/^(az|or|al)$/.test(h))showRoutes(h.toUpperCase());
-  else if(/^(az|or|al)\d+$/.test(h))showRoutes([h]);
+  else if(h==="routes")showRoutes("all",cam);
+  else if(h==="trip")showRoutes("trip",cam);
+  else if(/^drv\d*$/.test(h))showRoutes(h,cam);
+  else if(/^(az|or|al)$/.test(h))showRoutes(h.toUpperCase(),cam);
+  else if(/^(az|or|al)\d+$/.test(h))showRoutes([h],cam);
 }
 addEventListener("hashchange",fromHash);
 function refresh(){drawStates();drawLabels();renderZones();renderDetail()}
